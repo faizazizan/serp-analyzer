@@ -13,81 +13,67 @@ nltk.download('stopwords')
 
 # Function to get SERP results
 def get_serp_results(query):
-    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"}
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+    }
     response = requests.get(f"https://www.google.com/search?q={query}", headers=headers)
     soup = BeautifulSoup(response.text, 'html.parser')
     return soup
 
 # Function to analyze a single page
-def analyze_page(url):
-    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"}
-    response = requests.get(url, headers=headers)
-    soup = BeautifulSoup(response.text, 'html.parser')
+def analyze_page(link):
+    response = requests.get(link)
+    page_soup = BeautifulSoup(response.text, 'html.parser')
+    title = page_soup.title.string if page_soup.title else 'No Title'
+    h1 = page_soup.h1.string if page_soup.h1 else 'No H1'
+    meta_desc = page_soup.find('meta', attrs={'name': 'description'})
+    meta_desc = meta_desc['content'] if meta_desc else 'No Meta Description'
     
-    title = soup.title.string if soup.title else 'No title'
-    h1 = soup.h1.get_text() if soup.h1 else 'No H1'
-    meta_desc = ''
-    for tag in soup.find_all('meta'):
-        if 'name' in tag.attrs and tag.attrs['name'].lower() == 'description':
-            meta_desc = tag.attrs['content']
-            break
-    
-    page_text = soup.get_text()
+    page_text = page_soup.get_text()
     tokens = word_tokenize(page_text.lower())
+    
     words = [word for word in tokens if word.isalnum()]
     stop_words = set(stopwords.words('english'))
     filtered_words = [word for word in words if word not in stop_words]
-    word_freq = Counter(filtered_words)
     
+    word_freq = Counter(filtered_words).most_common(10)  # Get top 10 words
     content_length = len(page_text)
     
-    # Find similar keywords in title and description
-    title_words = set(word_tokenize(title.lower()))
-    desc_words = set(word_tokenize(meta_desc.lower()))
-    similar_keywords = title_words & desc_words
-    
-    return title, h1, meta_desc, word_freq, content_length, similar_keywords
+    return title, h1, meta_desc, word_freq, content_length
 
-# Streamlit app
-st.title("SERP Analyzer for SEO")
-
-query = st.text_input("Enter a keyword to search:", "")
-
-if query:
-    st.write(f"Analyzing SERP results for '{query}'...")
-
+# Function to extract related topics from SERP results
+def topical_mapping(query):
     soup = get_serp_results(query)
     search_results = soup.find_all('div', class_='tF2Cxc')
-
-    result_data = []
-
+    
+    all_word_freq = Counter()
+    
     for result in search_results:
         link = result.find('a')['href']
-        title, h1, meta_desc, word_freq, content_length, similar_keywords = analyze_page(link)
-        result_data.append({
-            "URL": link,
-            "Title": title,
-            "H1": h1,
-            "Description": meta_desc,
-            "Word Frequency": word_freq,
-            "Content Length": content_length,
-            "Similar Keywords": similar_keywords
-        })
+        title, h1, meta_desc, word_freq, content_length = analyze_page(link)
+        all_word_freq.update(dict(word_freq))
+    
+    return all_word_freq.most_common(10)
 
-    if result_data:
-        avg_title_length = sum(len(item['Title']) for item in result_data) / len(result_data)
-        avg_desc_length = sum(len(item['Description']) for item in result_data) / len(result_data)
-        avg_content_length = sum(item['Content Length'] for item in result_data) / len(result_data)
+# Function to generate semantic keywords
+def generate_semantic_keywords(query):
+    related_topics = topical_mapping(query)
+    semantic_keywords = {word for word, freq in related_topics}
+    return list(semantic_keywords)
 
-        st.write(f"Average Title Length: {avg_title_length:.2f} characters")
-        st.write(f"Average Description Length: {avg_desc_length:.2f} characters")
-        st.write(f"Average Content Length: {avg_content_length:.2f} characters")
+# Streamlit app
+st.title("Keyword Analyzer for SEO")
 
-        for idx, data in enumerate(result_data, start=1):
-            st.write(f"### Result {idx}")
-            st.write(f"**URL:** {data['URL']}")
-            st.write(f"**Title:** {data['Title']}")
-            st.write(f"**H1:** {data['H1']}")
-            st.write(f"**Description:** {data['Description']}")
-            st.write(f"**Word Frequency:** {data['Word Frequency'].most_common(10)}")
-            st.write(f"**Similar Keywords in Title and Description:** {data['Similar Keywords']}")
+query = st.text_input("Enter a keyword to analyze:", "")
+
+if query:
+    st.write(f"Analyzing '{query}'...")
+
+    st.write("### Semantic Keywords")
+    semantic_keywords = generate_semantic_keywords(query)
+    
+    if semantic_keywords:
+        semantic_keywords_df = pd.DataFrame(semantic_keywords, columns=['Semantic Keywords'])
+        st.table(semantic_keywords_df)
+    else:
+        st.write("No semantic keywords found.")
