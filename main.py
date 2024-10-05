@@ -1,79 +1,138 @@
 import streamlit as st
 import requests
 from bs4 import BeautifulSoup
-import nltk
+import pandas as pd
 from collections import Counter
-from nltk.corpus import stopwords
-from nltk.tokenize import word_tokenize
 import re
 
-# Download NLTK data
-nltk.download('punkt')
-nltk.download('stopwords')
+# Function to fetch and parse HTML of the page
+def get_html(url):
+    try:
+        response = requests.get(url)
+        if response.status_code == 200:
+            return BeautifulSoup(response.text, 'html.parser')
+        else:
+            st.error(f"Error fetching {url}: Status code {response.status_code}")
+            return None
+    except Exception as e:
+        st.error(f"Error fetching {url}: {e}")
+        return None
 
-# Function to get SERP results
-def get_serp_results(query):
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
-    }
-    response = requests.get(f"https://www.google.com/search?q={query}", headers=headers)
-    soup = BeautifulSoup(response.text, 'html.parser')
-    return soup
-
-# Function to analyze a single page
-def analyze_page(link):
-    response = requests.get(link)
-    page_soup = BeautifulSoup(response.text, 'html.parser')
-    title = page_soup.title.string if page_soup.title else 'No Title'
-    h1 = page_soup.h1.string if page_soup.h1 else 'No H1'
-    meta_desc = page_soup.find('meta', attrs={'name': 'description'})
-    meta_desc = meta_desc['content'] if meta_desc else 'No Meta Description'
+# Function to extract basic keywords by word frequency
+def extract_basic_keywords(text):
+    # Clean the text: remove non-alphabetic characters and convert to lowercase
+    clean_text = re.sub(r'[^A-Za-z\s]', '', text).lower()
     
-    page_text = page_soup.get_text()
-    tokens = word_tokenize(page_text.lower())
+    # Split text into words
+    words = clean_text.split()
     
-    words = [word for word in tokens if word.isalnum()]
-    stop_words = set(stopwords.words('english'))
+    # Filter out common stop words (you can expand this list as needed)
+    stop_words = ['the', 'and', 'to', 'of', 'a', 'in', 'that', 'is', 'it', 'for', 'on', 'with', 'as', 'this', 'by', 'an', 'be', 'at', 'or', 'from']
     filtered_words = [word for word in words if word not in stop_words]
     
-    word_freq = Counter(filtered_words).most_common(10)  # Get top 10 words
-    content_length = len(page_text)
+    # Count word frequency
+    word_freq = Counter(filtered_words)
     
-    return title, h1, meta_desc, word_freq, content_length
+    # Return top 10 most common keywords
+    return word_freq.most_common(10)
 
-# Function to extract related topics from SERP results
-def topical_mapping(query):
-    soup = get_serp_results(query)
-    search_results = soup.find_all('div', class_='tF2Cxc')
+# Function to extract on-page SEO data
+def analyze_page(url):
+    soup = get_html(url)
+    if not soup:
+        return None
+
+    # Meta Title
+    meta_title = soup.title.string if soup.title else 'No title'
+    title_length = len(meta_title) if meta_title else 0
+
+    # Meta Description
+    meta_description = soup.find('meta', attrs={'name': 'description'})
+    meta_description = meta_description['content'] if meta_description else 'No description'
+    description_length = len(meta_description) if meta_description else 0
+
+    # H1 Tag
+    h1_tags = [h1.get_text().strip() for h1 in soup.find_all('h1')] or ['No H1 tags']
+
+    # H2 Tags
+    h2_tags = [h2.get_text().strip() for h2 in soup.find_all('h2')] or ['No H2 tags']
+
+    # Word Count (for article length analysis)
+    article_text = soup.get_text()
+    word_count = len(article_text.split())
+
+    # Extract basic keywords
+    basic_keywords = extract_basic_keywords(article_text)
+
+    # Internal Links
+    internal_links = []
+    for link in soup.find_all('a', href=True):
+        href = link['href']
+        if url in href or href.startswith('/'):  # If the link is internal
+            internal_links.append(href)
+    internal_links = internal_links if internal_links else ['No internal links']
+
+    # Return analysis as a dictionary
+    return {
+        'url': url,
+        'meta_title': meta_title,
+        'title_length': title_length,
+        'meta_description': meta_description,
+        'description_length': description_length,
+        'h1_tags': ', '.join(h1_tags),
+        'h2_tags': ', '.join(h2_tags),
+        'word_count': word_count,
+        'basic_keywords': ', '.join([kw[0] for kw in basic_keywords]),
+        'internal_links': ', '.join(internal_links)
+    }
+
+# Function to analyze multiple competitor pages
+def analyze_pages(urls):
+    data = []
+    for url in urls:
+        result = analyze_page(url)
+        if result:
+            data.append(result)
     
-    all_word_freq = Counter()
-    
-    for result in search_results:
-        link = result.find('a')['href']
-        title, h1, meta_desc, word_freq, content_length = analyze_page(link)
-        all_word_freq.update(dict(word_freq))
-    
-    return all_word_freq.most_common(10)
+    # Convert to DataFrame for better analysis
+    df = pd.DataFrame(data)
+    return df
 
-# Function to generate semantic keywords
-def generate_semantic_keywords(query):
-    related_topics = topical_mapping(query)
-    semantic_keywords = {word for word, freq in related_topics}
-    return list(semantic_keywords)
+# Streamlit UI
+st.title('On-Page SEO Analysis Tool')
 
-# Streamlit app
-st.title("Keyword Analyzer for SEO")
+# Input for URLs
+url_input = st.text_area("Enter URLs (one per line)", "https://example.com\nhttps://example2.com")
+urls = [url.strip() for url in url_input.split('\n') if url.strip()]
 
-query = st.text_input("Enter a keyword to analyze:", "")
+if st.button('Analyze'):
+    if urls:
+        # Analyze the pages
+        df = analyze_pages(urls)
 
-if query:
-    st.write(f"Analyzing '{query}'...")
+        if not df.empty:
+            st.write("### Complete On-Page SEO Analysis Table:")
+            st.dataframe(df)
 
-    st.write("### Semantic Keywords")
-    semantic_keywords = generate_semantic_keywords(query)
-    
-    if semantic_keywords:
-        semantic_keywords_df = pd.DataFrame(semantic_keywords, columns=['Semantic Keywords'])
-        st.table(semantic_keywords_df)
+            # Calculate and display averages
+            average_word_count = df['word_count'].mean()
+            average_title_length = df['title_length'].mean()
+            average_description_length = df['description_length'].mean()
+
+            st.write(f'**Average word count per article:** {average_word_count:.2f}')
+            st.write(f'**Average title length:** {average_title_length:.2f} characters')
+            st.write(f'**Average meta description length:** {average_description_length:.2f} characters')
+
+            # Option to download results as CSV
+            csv = df.to_csv(index=False)
+            st.download_button(
+                label="Download CSV",
+                data=csv,
+                file_name='on_page_seo_analysis.csv',
+                mime='text/csv'
+            )
+        else:
+            st.warning("No valid data found. Please check the URLs and try again.")
     else:
-        st.write("No semantic keywords found.")
+        st.warning("Please enter at least one URL.")
+
