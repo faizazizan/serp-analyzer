@@ -5,9 +5,9 @@ import nltk
 from collections import Counter
 from nltk.corpus import stopwords
 from nltk.tokenize import word_tokenize
-import re
+import os
 
-# Function to download NLTK data
+# Function to download NLTK data if not already downloaded
 def download_nltk_data():
     try:
         nltk.data.find('tokenizers/punkt')
@@ -19,19 +19,23 @@ def download_nltk_data():
     except LookupError:
         nltk.download('stopwords')
 
-# Download NLTK data
+# Download NLTK data at the beginning
 download_nltk_data()
 
 # Function to get SERP results
 def get_serp_results(query):
-    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"}
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+    }
     response = requests.get(f"https://www.google.com/search?q={query}", headers=headers)
     soup = BeautifulSoup(response.text, 'html.parser')
     return soup
 
 # Function to analyze a single page
 def analyze_page(url):
-    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"}
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+    }
     response = requests.get(url, headers=headers)
     soup = BeautifulSoup(response.text, 'html.parser')
     
